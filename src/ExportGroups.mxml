@@ -1,0 +1,265 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:Application xmlns:fx="http://ns.adobe.com/mxml/2009" 
+			   xmlns:s="library://ns.adobe.com/flex/spark" 
+			   xmlns:mx="library://ns.adobe.com/flex/mx"
+			   width="295" height="458"
+			   creationComplete="init()" maxHeight.jpg="458" maxWidth.jpg="295">
+	<fx:Script>
+		<![CDATA[
+			import com.adobe.csxs.core.CSXSInterface;
+			import com.adobe.csxs.events.*;
+			import com.adobe.csxs.types.*;
+			
+			import flash.events.Event;
+			
+			import spark.events.IndexChangeEvent;
+			
+			//import org.osmf.events.TimeEvent;
+		
+			private var prefix:String = "exGrps";
+			private var namespaceURI:String = "http://brianmehrman.com/tools/PS/ExportGroups/1.0/";
+				
+			// Timer to trigger metadata change when document selection changes.
+			public var metadataTimer:Timer = new Timer(10);
+		
+			protected function dirBrowseBtn_clickHandler(event:MouseEvent):void
+			{
+				var reqResult:SyncRequestResult = CSXSInterface.instance.evalScript("browseDirectory", "Select your export directory.");
+				
+				if(SyncRequestResult.COMPLETE == reqResult.status){
+					logMessage(reqResult.data.dir);
+					dirTxt.text = reqResult.data.dir!=""?reqResult.data.dir:"";
+					setPSMetadata();
+				}				
+			}
+			
+			public function setPSMetadata():void{
+				// get options
+				var params:String = namespaceURI + "," + prefix;
+				
+				params += ',' + dirTxt.text;
+				params += ',' + fileTypeDropDown.selectedIndex.toString();
+				params += ',' + resizeWidthSpinner.value.toString();
+				params += ',' + resizeHeightSpinner.value.toString();
+				params += ',' + alphaChbx.selected.toString();
+				params += ',' + interlaceChbx.selected.toString();
+				params += ',' + qualitySpnr.value.toString();
+				
+				CSXSInterface.instance.evalScript("setMetadata", params);		
+			}
+			
+			public function getPSMetadata():void{
+				
+				var params:String = namespaceURI + "," + prefix;
+				
+				var reqResult:SyncRequestResult = CSXSInterface.instance.evalScript("getMetadata", params);
+				
+				if(SyncRequestResult.COMPLETE == reqResult.status){
+					
+					dirTxt.text                    = reqResult.data.curDir!=""?reqResult.data.curDir:"";
+					fileTypeDropDown.selectedIndex = reqResult.data.fileType;
+					resizeWidthSpinner.value       = reqResult.data.width;
+					resizeHeightSpinner.value      = reqResult.data.height;
+					alphaChbx.selected             = reqResult.data.saveAlpha == "true"?true:false;
+					interlaceChbx.selected         = reqResult.data.interlace == "true"?true:false;
+					qualitySpnr.value              = reqResult.data.quality;
+					
+					if( currentState != fileTypeDropDown.selectedItem ){
+						currentState = fileTypeDropDown.selectedItem;	
+					}
+				}
+			}
+			
+			public function PhotoshopCallback( eventID:Number, descID:Number):void{
+				//for open and make new file execute the function
+				if(eventID == charToInteger("Opn ") || eventID == charToInteger("Mk  ") ){
+					activateDocument_changeHandler();
+					
+				} else if (eventID == charToInteger("slct")){ // if the document has been selected set a timer to call the function later
+					metadataTimer.start();
+				}
+			}
+			
+			public function metadataTimerHandler(event:TimerEvent):void{
+				activateDocument_changeHandler();
+				metadataTimer.stop();
+				metadataTimer.reset();
+			}
+			
+			public function activateDocument_changeHandler():void{
+				// when the active document changes the meta data will try to change too
+				getPSMetadata();
+				
+			}
+			
+			public function exportBtn_clickHandler():void
+			{
+				// get options
+				var filePath:String = dirTxt.text;
+				var type:String = fileTypeDropDown.selectedItem;
+				var width:String = resizeWidthSpinner.value.toString();
+				var height:String = resizeHeightSpinner.value.toString();
+				
+				// get file specific data
+				var options:String = "";
+				switch(type){
+					case "jpg":
+						options = qualitySpnr.value.toString();
+						break;
+					case "png":
+						options = interlaceChbx.selected.toString();
+						break;
+					case "tga":
+						options = alphaChbx.selected.toString();
+						break;
+				}
+				
+				// turn params into one ',' delimited string
+				var params:String = filePath + ',' + type + ',' + width + ',' + height + ',' + options;
+				
+				CSXSInterface.instance.evalScript("exportThis", params);
+				
+				logMessage("Export\nFile Path:\t"+filePath+"\nType:\t"+type+"\nWidth:\t"+width+"\nHeight:\t"+height);
+			}
+			
+			//Util Functions
+			public function evalStringChecker(inString:String):String {
+				
+				var tokens:Array = inString.split("'");
+				var joined:String = tokens.join("\\'");
+				tokens = joined.split('=');
+				joined = tokens.join('\\');
+				return(joined);
+				
+			}
+			
+			public function charToInteger(keyword:String):Number{
+				var value:Number;
+				value  = keyword.charCodeAt(0) * 256 * 256 * 256; // move over 6 bytes
+				value += keyword.charCodeAt(1) * 256 * 256;// move over 4 bytes
+				value += keyword.charCodeAt(2) * 256;// mover over 2 bytes
+				value += keyword.charCodeAt(3);// this char uses first two bytes
+				return value;				
+			}
+			
+			
+			public function clearLog():void {
+				if(currentState.toLowerCase() != "debug")
+				{
+					outputLog.text = "";
+				}
+			}		
+			public function logMessage(inMessage:String):void {
+				if(currentState.toLowerCase() != "debug")
+				{				
+					outputLog.text += "\r" + (new Date()).getSeconds().toString()+"."+(new Date()).getMilliseconds().toString() + ":: ";
+					outputLog.text += inMessage;
+				}
+			}
+			public function init():void {
+				
+				// Access host environment
+				var result:SyncRequestResult = CSXSInterface.getInstance().getHostEnvironment();
+				var hostEnv:HostEnvironment;
+				var skin:AppSkinInfo;
+				if((SyncRequestResult.COMPLETE == result.status) && result.data )
+				{
+					hostEnv = result.data as HostEnvironment;
+					skin = hostEnv.appSkinInfo;
+				}
+				
+				if (hostEnv){
+					// set new skin
+					this.setStyle("backgroundColor",skin.panelBackgroundColor.color.rgb);
+					this.setStyle("fontSize", skin.baseFontSize);
+					this.setStyle("fontFamily", skin.baseFontFamily);
+					
+				} else {
+					logMessage("No App Info found.\n");
+				}
+				
+				// set metadata
+				getPSMetadata();
+				if(ExternalInterface.available){
+					logMessage("External Interface found.\n");
+					// Register Photoshop event
+					CSXSInterface.instance.evalScript("PhotoshopRegisterEvent", charToInteger("Opn ").toString());
+					CSXSInterface.instance.evalScript("PhotoshopRegisterEvent", charToInteger("Mk  ").toString());
+					CSXSInterface.instance.evalScript("PhotoshopRegisterEvent", charToInteger("slct").toString());
+					//CSXSInterface.instance.evalScript("PhotoshopRegisterEvent", charToInteger("setd").toString());
+					//CSXSInterface.instance.evalScript("PhotoshopRegisterEvent", charToInteger("Rset").toString());
+					if( hostEnv ) {
+						var verArr:Array = hostEnv.appVersion.split('.');
+						if(verArr[0] == '11')
+							ExternalInterface.addCallback("PhotoshopCallback", PhotoshopCallback);
+						if(verArr[0] == '12')
+							ExternalInterface.addCallback("PhotoshopCallback" + CSXSInterface.getInstance().getExtensionId(), PhotoshopCallback);
+					}else {
+						logMessage("Host Environment not found; Cant determine Photoshop version.");	
+					}
+					
+				}else{
+					logMessage("External interface is not found.Some features will not be available.\n");
+				}
+				
+				// add metadata timer event handler
+				metadataTimer.addEventListener(TimerEvent.TIMER, metadataTimerHandler);
+				
+			}
+
+			protected function fileTypeDropDown_changeHandler(event:IndexChangeEvent):void
+			{
+				currentState = fileTypeDropDown.selectedItem;
+				setPSMetadata();
+			}
+
+		]]>
+		
+	</fx:Script>
+	
+	<s:states>
+		<s:State name="jpg"/>
+		<s:State name="png"/>
+		<s:State name="tga"/>
+	</s:states>
+	
+	<fx:Declarations>
+		<s:RadioButtonGroup id="exportMethod"/>
+		<!-- Place non-visual elements (e.g., services, value objects) here -->
+	</fx:Declarations>
+	<s:layout.png>
+		<s:BasicLayout/>
+	</s:layout.png>
+	<s:layout.tga>
+		<s:BasicLayout/>
+	</s:layout.tga>
+	<s:layout.jpg>
+		<s:BasicLayout/>
+	</s:layout.jpg>
+	
+	<s:TextInput contentBackgroundColor="#B7B7B7" top="34" right="67" left="10" chromeColor="#CCCCCC" id="dirTxt" change="setPSMetadata()"/>
+	<s:Button label="..." width="54" right="8" fontSize="10" color="#424141" top="35" id="dirBrowseBtn" click="dirBrowseBtn_clickHandler(event)"/>
+	<s:Label text="Output Directory:" height="14" width="91" fontSize="11" left="10" top="15" id="dirLabel"/>
+	<s:DropDownList top="66.65" id="fileTypeDropDown" selectedIndex="0" left="71.25" width="112" change="fileTypeDropDown_changeHandler(event)" selectedIndex.tga="2" selectedIndex.png="1">
+		<mx:ArrayCollection>
+			<fx:String>jpg</fx:String>
+			<fx:String>png</fx:String>
+			<fx:String>tga</fx:String>
+		</mx:ArrayCollection>
+	</s:DropDownList>
+	<s:Label x="9" y="72" text="File Type:" id="fileTypeLabel"/>
+	<s:Label text="Resize:" id="resizeLabel" x.jpg="9" y.jpg="112.5" x.png="9" y.png="112.5" x.tga="9" y.tga="112.5"/>
+	<s:Label text="h:" x.jpg="177" y.jpg="113" x.png="177" y.png="113" x.tga="177" y.tga="113"/>
+	<s:Label text="w:" x.jpg="63" y.jpg="113" x.png="63" y.png="113" x.tga="63" y.tga="113"/>
+	<s:NumericStepper id="resizeWidthSpinner" minimum="1" maximum="10000" stepSize="1" value="256" change="setPSMetadata()" x.jpg="80" y.jpg="107" x.png="80" y.png="107" x.tga="80" y.tga="107"/>
+	<s:NumericStepper id="resizeHeightSpinner" minimum="1" maximum="10000" stepSize="1" value="256" change="setPSMetadata()" x.jpg="192" y.jpg="107" x.png="192" y.png="107" x.tga="192" y.tga="107"/>
+	
+	<s:Button label="Export" id="exportBtn" click="exportBtn_clickHandler()" height="41" y="246" left="10" right="12" horizontalCenter="-1"/>
+	<s:TextArea y="312" contentBackgroundColor="#D0D0D0" id="outputLog" left="10" right="12" horizontalCenter="-1" height="139"/>
+	<s:Label width="275" verticalAlign="bottom" fontSize.jpg="10" text.jpg="Only visible groups with a prepending &quot;~&quot; in the name will be exported.&#xd;&#xd;Example:   ~diffuse" height.jpg="48" y.jpg="192" x.jpg="11" color.jpg="#FF0606" color.png="#FF0606" fontSize.png="10" height.png="48" text.png="Only visible groups with a prepending &quot;~&quot; in the name will be exported.&#xd;&#xd;Example:   ~diffuse" x.png="11" y.png="192" color.tga="#FF0606" fontSize.tga="10" height.tga="48" text.tga="Only visible groups with a prepending &quot;~&quot; in the name will be exported.&#xd;&#xd;Example:   ~diffuse" x.tga="11" y.tga="192"/>
+	<s:Label x="10" y="297" text="Output Log:"/>
+	<s:CheckBox x="11" y="155" label="Save Alpha" includeIn="tga" id="alphaChbx" change="setPSMetadata()"/>
+	<s:CheckBox x="10" y="155" label="Interlace" includeIn="png" id="interlaceChbx" change="setPSMetadata()"/>
+	<s:NumericStepper minimum="1" maximum="12" value="9" x="53" y="146" includeIn="jpg" id="qualitySpnr" change="setPSMetadata()"/>
+	<s:Label text="Quality:" x="10" y="153" includeIn="jpg"/>
+</s:Application>
